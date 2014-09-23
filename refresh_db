@@ -1,0 +1,55 @@
+#!/bin/bash
+
+TMP_FILE=`/bin/mktemp`
+
+ROOT=/path/to/cscart
+
+CSCART_DB=cs_db
+CSCART_USER=cs_user
+CSCART_PASSWD=password
+
+PROD_HOST=admin.domain.com
+STAGE_HOST=admin.domain.net
+
+DB_BACKUP=/path/to/dbbackups
+
+echo "ssh -o StrictHostKeyChecking=no -t ubuntu@$PROD_HOST 'mysqldump -u root $CSCART_DB' >$TMP_FILE 2>/dev/null"
+
+# If running as root
+if [ "$(id -u)" == "1" ]; then
+	su ubuntu -c "ssh -o StrictHostKeyChecking=no -t ubuntu@$PROD_HOST 'mysqldump -u root $CSCART_DB' >$TMP_FILE 2>/dev/null"
+else
+	ssh -o StrictHostKeyChecking=no -t ubuntu@$PROD_HOST 'mysqldump -u root $CSCART_DB' >$TMP_FILE 2>/dev/null
+fi
+
+echo "edit in-place; change all '$PROD_HOST' references to '$STAGE_HOST'"
+perl -pi -e "s/$PROD_HOST/$STAGE_HOST/g' $TMP_FILE
+
+echo "check to see if $CSCART_DB exists; if not, create -- otherwise, snapshot the current database"
+mysql -u root $CSCART_DB -e exit 2>&1 >/dev/null
+if [ $? -gt 0 ]
+then
+        echo "mysqladmin create $CSCART_DB"
+        mysqladmin create $CSCART_DB
+        echo "mysql: create user '$CSCART_USER'"
+        mysql -u root -e "CREATE USER '$CSCART_USER'@'localhost' IDENTIFIED BY '$CSCART_PASSWD'"
+        echo "mysql: grant privileges to '$CSCART_USER'"
+        mysql -u root -e "GRANT alter,create,create temporary tables,delete,drop,index,insert,lock tables,select,update ON $CSCART_DB.* to '$CSCART_USER'@'localhost'"
+        mysqladmin flush-privileges
+else
+        echo "mysqldump -u root $CSCART_DB >$DB_BACKUP/`date +%Y-%m-%d.%H.%M.%S.sql`"
+        mysqldump -u root $CSCART_DB >$DB_BACKUP/`date +%Y-%m-%d.%H.%M.%S.sql`
+fi
+
+echo "mysql -u root $CSCART_DB <$TMP_FILE"
+mysql -u root $CSCART_DB <$TMP_FILE
+
+# rm $TMP_FILE
+
+cd $ROOT/images
+
+echo "Copying images..."
+
+scp -r ubuntu@$PROD_HOST:$ROOT/images/. . 2>&1 >/dev/null
+
+chown -R www-data.www-data $ROOT/images

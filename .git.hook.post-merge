@@ -1,0 +1,16 @@
+#!/bin/bash
+
+export ROOT=/path/to/cscart/base
+
+## CLEAR CACHE
+php $ROOT/bin/clear_cache.php
+
+## HARD RESET JUST IN CASE
+rm -rf $ROOT/var/cache/*
+
+## RUN COMPOSER
+cd $ROOT/app/lib
+/usr/bin/composer install
+
+$ROOT/bin/flip_addon.sh
+
